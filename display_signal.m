@@ -17,11 +17,11 @@ OUTPUTS:
 
 -------------------------------------------------------------------------
 %}
-function display_signal(rawPath, filteredPath, BLOCKPATH)
+function display_signal(rawPath, filteredPath, snippetPath, BLOCKPATH, ch)
 STORE = 'Wav1'; 
-chanIdx = 1;
+chanIdx = ch;
 
-dataRaw = TDTbin2mat(BLOCKPATH, 'STORE', STORE, 'CHANNEL', 1); 
+dataRaw = TDTbin2mat(BLOCKPATH, 'STORE', STORE, 'CHANNEL', chanIdx); 
 
 % Raw signal
 sig_raw = dataRaw.streams.(STORE).data;
@@ -36,19 +36,30 @@ xlim([0 650]);
 title(sprintf('Raw Signal of ch%d', chanIdx));
 saveas(gcf, rawPath, 'png'); close(gcf);
 
-% Filtered signal
-comb_data = dataRaw;
-for f0 = [60 300]
-    comb_data = TDTdigitalfilter(comb_data, STORE, 'NOTCH', f0, 'ORDER', 4);
+% Filtered signal (match process_data: notch 60:780 then 300–2500 bandpass)
+fs = dataRaw.streams.(STORE).fs;
+x = double(dataRaw.streams.(STORE).data(:));
+max_harmonic = 780; notch_base = 60; Q = 35;
+for f0 = notch_base:notch_base:max_harmonic
+    if f0 < fs/2
+        [B,A] = designNotchPeakIIR( ...
+            Response="notch", ...
+            CenterFrequency=f0/(fs/2), ...
+            QualityFactor=Q);
+        x = filtfilt(B, A, x);
+    end
 end
 BP_FILTER = [300 2500];
-dataFiltered = TDTdigitalfilter(comb_data, STORE, BP_FILTER, 'ORDER', 8);
+[bb,aa] = butter(4, BP_FILTER/(fs/2), 'bandpass');
+x = filtfilt(bb,aa,x);
+dataFiltered = dataRaw;
+dataFiltered.streams.(STORE).data = x.';
 
 % Option for manual thresholding
 %THRESH = -25e-6; NPTS = 30; OVERLAP = 0;
 %dataFiltered = TDTthresh(dataFiltered, STORE, 'MODE', 'manual', 'THRESH', THRESH, 'NPTS', NPTS, 'OVERLAP', OVERLAP, 'REJECT', 200e-6);
 
-dataFiltered = TDTthresh(dataFiltered, STORE, 'MODE', 'auto', 'POLARITY', -1, 'STD', 6.5, 'TAU', 5);
+dataFiltered = TDTthresh(dataFiltered, STORE, 'MODE', 'auto', 'POLARITY', -1, 'STD', 6.5, 'TAU', 3);
 
 maxvals = max(dataFiltered.snips.Snip.data, [], 2)*1e6;
 minvals = min(dataFiltered.snips.Snip.data, [], 2)*1e6;
@@ -70,4 +81,14 @@ subtitle('with threshold');
 legend({'stream', 'threshold', 'spike'});
 
 saveas(gcf, filteredPath, 'png'); close(gcf);
+
+%Snippets
+figure('Visible','off','Position',[100 100 800 600]); hold on;
+for ii = 1:size(dataFiltered.snips.Snip.data,1)
+    plot(dataFiltered.snips.Snip.data(ii,:)*1e6, 'color', colors(ii,:));
+end
+axis tight
+xlabel('samples'); ylabel('\muV');
+title(sprintf('Extracted snippets ch%d (N=%d)', chanIdx, size(dataFiltered.snips.Snip.data,1)));
+saveas(gcf, snippetPath, 'png'); close(gcf);
 end

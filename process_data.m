@@ -29,6 +29,7 @@ function [spikeData, datasetSpikes, datasetActiveChannels, recordLengthSecs, spi
     BP_FILTER = [300 2500];
     max_harmonic = 780;
     notch_base = 60;
+    Q = 35;
 
     spikeData = cell(length(CHANNELS), 1);
     spikeTimes = cell(length(CHANNELS), 1);
@@ -38,26 +39,35 @@ function [spikeData, datasetSpikes, datasetActiveChannels, recordLengthSecs, spi
     channels_prog = waitbar(0, 'Processing channels...');
     
     % Convert and filter
-    for ch = CHANNELS
+    for i = 1:length(CHANNELS)
+        ch = CHANNELS(i);
         rawData = TDTbin2mat(BLOCKPATH, 'STORE', STORE, 'CHANNEL', ch);
-        comb_data = rawData;
+        fs = rawData.streams.(STORE).fs;
+        x = double(rawData.streams.(STORE).data(:));
+
+        % notch 60 Hz harmonics (zero-phase)
         for f0 = notch_base:notch_base:max_harmonic
-            comb_data = TDTdigitalfilter(comb_data, 'Wav1', 'NOTCH', f0, 'ORDER', 4);
+            if f0 < fs/2
+                [B,A] = designNotchPeakIIR( ...
+                    Response="notch", ...
+                    CenterFrequency=f0/(fs/2), ...
+                    QualityFactor=Q);
+                x = filtfilt(B, A, x);
+            end
         end
-        
-        % Alternate notch filter at two problem notches 
-        %notchfreqs = [60 300];
-        %for f0 = notchfreqs
-            %comb_data = TDTdigitalfilter(comb_data, 'Wav1', 'NOTCH', f0, 'ORDER', 4);
-        %end
-            
-        dataFiltered = TDTdigitalfilter(comb_data, 'Wav1', BP_FILTER, 'ORDER', 8);
+
+        % bandpass 300–2500 Hz (zero-phase)
+        [bp_b,bp_a] = butter(4, BP_FILTER/(fs/2), 'bandpass');
+        x = filtfilt(bp_b,bp_a,x);
+
+        dataFiltered = rawData;
+        dataFiltered.streams.(STORE).data = x.';
+
         spikes = TDTthresh(dataFiltered, STORE, 'MODE', 'auto', 'POLARITY', -1, 'STD', 6.5, 'TAU', 5);
         spikeData{ch} = spikes;
 
         % For recording length, ensure it's calculated once per dataset
         if ch == CHANNELS(1)
-            fs = rawData.streams.(STORE).fs;
             nSamples = length(rawData.streams.(STORE).data);
             recordLengthSecs = nSamples / fs;
         end
@@ -77,5 +87,3 @@ function [spikeData, datasetSpikes, datasetActiveChannels, recordLengthSecs, spi
     close(channels_prog);
 
 end
-
-
