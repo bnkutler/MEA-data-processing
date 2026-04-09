@@ -29,6 +29,3 @@ Full behavior, filters, and outputs are documented in each script’s leading `%
 | `figures_compare_filtered_signals.m` | Side-by-side **filtered voltage traces** for selected channels (control vs treatment); publication-style layout. | Live TDT |
 | `figures_process_data.m` | **Two-dataset** filtering and comparison figure (similar role to compare_filtered); processes from disk without writing a long-term figure cache. | Live TDT |
 
-## License
-
-Add a `LICENSE` file if you want to specify terms for reuse.
